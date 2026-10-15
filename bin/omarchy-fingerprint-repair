@@ -49,10 +49,12 @@ if [[ -f "$service_unit" ]]; then
     exit 1
   fi
   service_backup_ready=1
-  # Mask only after the copy has succeeded.
+  # Mark the original as removed after a successful rm but before ln. If ln
+  # fails, the exit trap still restores the completed backup instead of
+  # silently discarding it.
   rm -f "$service_unit"
-  ln -s /dev/null "$service_unit"
   service_unit_masked=1
+  ln -s /dev/null "$service_unit"
 fi
 
 systemctl daemon-reload

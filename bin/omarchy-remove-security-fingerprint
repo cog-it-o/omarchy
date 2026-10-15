@@ -73,7 +73,9 @@ remove_validity_config() {
   sudo rm -f /etc/systemd/system/python3-validity.service
   sudo rm -rf /etc/systemd/system/python3-validity.service.d
   sudo rm -f /etc/systemd/system/open-fprintd.service.d/after-validity.conf
-  sudo rmdir --ignore-fail-on-non-empty /etc/systemd/system/open-fprintd.service.d
+  if [[ -d /etc/systemd/system/open-fprintd.service.d ]]; then
+    sudo rmdir --ignore-fail-on-non-empty /etc/systemd/system/open-fprintd.service.d
+  fi
   sudo rm -f /usr/lib/systemd/system-sleep/python-validity-wakeup
   sudo rm -f /usr/lib/systemd/system-sleep/fprint_wakeup
   sudo rm -rf /var/lib/python-validity

@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# omarchy:summary=Returns true when a Validity fingerprint reader is present
+# omarchy:hidden=true
+
+# ThinkPad T470 (138a:0097) and siblings use a Validity sensor that libfprint
+# does not drive. Those are handled by python-validity + open-fprintd instead
+# of fprintd/libfprint, so Omarchy needs to tell the two apart.
+
+usb_devices_path="${OMARCHY_USB_DEVICES_PATH:-/sys/bus/usb/devices}"
+
+has_kernel_driver() {
+  local intf driver
+  for intf in "$1"/*:*; do
+    [[ -e $intf/driver ]] || continue
+    driver=$(readlink -f "$intf/driver")
+    [[ ${driver##*/} == "usbfs" ]] || return 0
+  done
+  return 1
+}
+
+for dev in "$usb_devices_path"/*; do
+  if [[ -r $dev/idVendor ]]; then
+    vendor=$(<"$dev/idVendor")
+    if [[ $vendor == 138a ]]; then
+      if [[ -r $dev/product ]]; then
+        product=$(<"$dev/product")
+        product=${product,,}
+        [[ $product == *fingerprint* || $product == *biometric* || $product == *validity* ]] && exit 0
+      fi
+      ! has_kernel_driver "$dev" && exit 0
+    fi
+  fi
+
+  if [[ -r $dev/product ]]; then
+    product=$(<"$dev/product")
+    product=${product,,}
+    [[ $product == *validity* ]] && exit 0
+  fi
+done
+
+exit 1

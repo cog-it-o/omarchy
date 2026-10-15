@@ -73,8 +73,13 @@ remove_validity_config() {
   sudo rm -f /etc/systemd/system/python3-validity.service
   sudo rm -rf /etc/systemd/system/python3-validity.service.d
   sudo rm -f /etc/systemd/system/open-fprintd.service.d/after-validity.conf
+  sudo rm -f /etc/systemd/system/open-fprintd.service.d/10-stop-timeout.conf
   if [[ -d /etc/systemd/system/open-fprintd.service.d ]]; then
     sudo rmdir --ignore-fail-on-non-empty /etc/systemd/system/open-fprintd.service.d
+  fi
+  if [[ -f /etc/pacman.conf ]] && grep -Fxq 'IgnorePkg = fprintd' /etc/pacman.conf; then
+    echo "Removing Validity IgnoredPkg override..."
+    sudo sed -i '/^IgnorePkg = fprintd$/d' /etc/pacman.conf
   fi
   sudo rm -f /usr/lib/systemd/system-sleep/python-validity-wakeup
   sudo rm -f /usr/lib/systemd/system-sleep/fprint_wakeup

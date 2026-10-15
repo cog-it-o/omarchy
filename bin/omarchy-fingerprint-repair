@@ -43,34 +43,46 @@ rm -f /var/run/python-validity/backoff /var/run/python-validity.last_start /var/
 
 # Reset the reader's USB power and force re-enumeration.
 for d in /sys/bus/usb/devices/*; do
-  if [ -r "$d/idVendor" ] && [ "$(cat "$d/idVendor" 2>/dev/null)" = "138a" ]; then
-    echo 0 > "$d/authorized" 2>/dev/null || true
+  if [ -r "$d/idVendor" ] && [ -r "$d/idProduct" ]; then
+    case "$(cat "$d/idVendor" 2>/dev/null):$(cat "$d/idProduct" 2>/dev/null)" in
+      138a:0090|138a:0097|138a:009d|06cb:009a) echo 0 > "$d/authorized" 2>/dev/null || true ;;
+    esac
   fi
 done
 sleep 2
 for d in /sys/bus/usb/devices/*; do
-  if [ -r "$d/idVendor" ] && [ "$(cat "$d/idVendor" 2>/dev/null)" = "138a" ]; then
-    echo 1 > "$d/authorized" 2>/dev/null || true
-    echo on > "$d/power/control" 2>/dev/null || true
-    echo -1 > "$d/power/autosuspend" 2>/dev/null || true
+  if [ -r "$d/idVendor" ] && [ -r "$d/idProduct" ]; then
+    case "$(cat "$d/idVendor" 2>/dev/null):$(cat "$d/idProduct" 2>/dev/null)" in
+      138a:0090|138a:0097|138a:009d|06cb:009a)
+        echo 1 > "$d/authorized" 2>/dev/null || true
+        echo on > "$d/power/control" 2>/dev/null || true
+        echo -1 > "$d/power/autosuspend" 2>/dev/null || true
+        ;;
+    esac
   fi
 done
 sleep 2
 
 if command -v usbreset >/dev/null 2>&1; then
-  usbreset 138a:0097 >/dev/null 2>&1 || true
+  for sensor_id in 138a:0090 138a:0097 138a:009d 06cb:009a; do
+    usbreset "$sensor_id" >/dev/null 2>&1 || true
+  done
 fi
 sleep 2
 for d in /sys/bus/usb/devices/*; do
-  if [ -r "$d/idVendor" ] && [ "$(cat "$d/idVendor" 2>/dev/null)" = "138a" ]; then
-    echo on > "$d/power/control" 2>/dev/null || true
-    echo -1 > "$d/power/autosuspend" 2>/dev/null || true
+  if [ -r "$d/idVendor" ] && [ -r "$d/idProduct" ]; then
+    case "$(cat "$d/idVendor" 2>/dev/null):$(cat "$d/idProduct" 2>/dev/null)" in
+      138a:0090|138a:0097|138a:009d|06cb:009a)
+        echo on > "$d/power/control" 2>/dev/null || true
+        echo -1 > "$d/power/autosuspend" 2>/dev/null || true
+        ;;
+    esac
   fi
 done
 
 # Wait for re-enumeration.
 for _ in $(seq 1 15); do
-  if lsusb 2>/dev/null | grep -q "138a:0097"; then
+  if lsusb 2>/dev/null | grep -Eq "138a:009[0-9d]|06cb:009a"; then
     break
   fi
   sleep 1
@@ -99,6 +111,7 @@ ENV{DEVTYPE}!="usb_device", GOTO="python_validity_end"
 
 ATTRS{idVendor}=="138a", ATTRS{idProduct}=="0090", GOTO="python_validity_match"
 ATTRS{idVendor}=="138a", ATTRS{idProduct}=="0097", GOTO="python_validity_match"
+ATTRS{idVendor}=="138a", ATTRS{idProduct}=="009d", GOTO="python_validity_match"
 ATTRS{idVendor}=="06cb", ATTRS{idProduct}=="009a", GOTO="python_validity_match"
 
 GOTO="python_validity_end"

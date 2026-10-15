@@ -3,6 +3,9 @@
 # omarchy:summary=Returns true when a Validity fingerprint reader is present
 # omarchy:hidden=true
 
+# Known python-validity USB sensors:
+#   138a:0090, 138a:0097, 138a:009d
+#   06cb:009a
 # ThinkPad T470 (138a:0097) and siblings use a Validity sensor that libfprint
 # does not drive. Those are handled by python-validity + open-fprintd instead
 # of fprintd/libfprint, so Omarchy needs to tell the two apart.
@@ -19,7 +22,23 @@ has_kernel_driver() {
   return 1
 }
 
+is_supported_validity_pair() {
+  local vendor=$1 product=$2
+  case "$vendor:$product" in
+    138a:0090|138a:0097|138a:009d|06cb:009a) return 0 ;;
+  esac
+  return 1
+}
+
 for dev in "$usb_devices_path"/*; do
+  if [[ -r $dev/idVendor && -r $dev/idProduct ]]; then
+    vendor=$(<"$dev/idVendor")
+    product=$(<"$dev/idProduct")
+    if is_supported_validity_pair "$vendor" "$product"; then
+      exit 0
+    fi
+  fi
+
   if [[ -r $dev/idVendor ]]; then
     vendor=$(<"$dev/idVendor")
     if [[ $vendor == 138a ]]; then

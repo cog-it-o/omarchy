@@ -15,18 +15,22 @@ echo "Omarchy Validity fingerprint repair: resetting sensor and restoring servic
 service_unit=/etc/systemd/system/python3-validity.service
 service_backup_dir=""
 service_backup_path=""
+service_backup_ready=0
+service_unit_masked=0
 
 restore_service_unit() {
   if [[ -L "$service_unit" ]]; then
     rm -f "$service_unit"
   fi
-  if [[ -n "$service_backup_path" && -f "$service_backup_path" ]]; then
+  if [[ "$service_backup_ready" == 1 && "$service_unit_masked" == 1 && -n "$service_backup_path" && -f "$service_backup_path" ]]; then
     mv "$service_backup_path" "$service_unit"
-    service_backup_path=""
+    service_backup_ready=0
+    service_unit_masked=0
   fi
   if [[ -n "$service_backup_dir" && -d "$service_backup_dir" ]]; then
     rm -rf -- "$service_backup_dir"
     service_backup_dir=""
+    service_backup_path=""
   fi
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl unmask python3-validity.service >/dev/null 2>&1 || true
@@ -38,10 +42,17 @@ if [[ -f "$service_unit" ]]; then
   service_backup_dir="$(umask 077; mktemp -d /tmp/python-validity-service.XXXXXX)"
   chmod 700 "$service_backup_dir"
   service_backup_path="$service_backup_dir/python3-validity.service"
-  cp -a "$service_unit" "$service_backup_path"
-  # Mask by replacing the file with a /dev/null symlink so udev/systemd cannot restart it.
+  if ! cp -a "$service_unit" "$service_backup_path"; then
+    rm -rf -- "$service_backup_dir"
+    service_backup_dir=""
+    service_backup_path=""
+    exit 1
+  fi
+  service_backup_ready=1
+  # Mask only after the copy has succeeded.
   rm -f "$service_unit"
   ln -s /dev/null "$service_unit"
+  service_unit_masked=1
 fi
 
 systemctl daemon-reload

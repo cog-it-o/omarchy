@@ -115,7 +115,7 @@ remove_resume_hook
 if [[ $validity_backend == true ]]; then
   remove_validity_config
   echo "Removing Validity packages..."
-  omarchy-pkg-drop python-validity open-fprintd 2>/dev/null || true
+  omarchy-pkg-drop python-validity open-fprintd
   echo -e "\e[32mFingerprint authentication and $fingerprint_user's local saved fingerprints have been removed.\e[0m"
   exit 0
 fi

@@ -129,15 +129,41 @@ if sudo fprintd-enroll -f right-index-finger "$USER"; then
 else
   echo -e "\e[31m\nFirst enrollment attempt failed.\e[0m"
   if is_validity_fingerprint; then
-    echo "Attempting one sensor repair before retrying enrollment..."
-    if command -v omarchy-fingerprint-repair >/dev/null 2>&1; then
-      omarchy-fingerprint-repair || true
-    elif [[ -x "$OMARCHY_PATH/bin/omarchy-fingerprint-repair" ]]; then
-      "$OMARCHY_PATH/bin/omarchy-fingerprint-repair" || true
+    if ! fprintd-list "$USER" >/dev/null 2>&1; then
+      echo "The sensor is no longer usable; repairing it before retrying enrollment..."
+      if command -v omarchy-fingerprint-repair >/dev/null 2>&1; then
+        omarchy-fingerprint-repair || true
+      elif [[ -x "$OMARCHY_PATH/bin/omarchy-fingerprint-repair" ]]; then
+        "$OMARCHY_PATH/bin/omarchy-fingerprint-repair" || true
+      fi
+      if sudo fprintd-enroll -f right-index-finger "$USER"; then
+        enrolled_ok=true
+      fi
+    else
+      # A failed capture or a full enrollment store does not necessarily mean
+      # that the sensor is stuck. Do not factory-reset without consent.
+      if [[ -t 0 && -t 2 ]]; then
+        read -r -p "Retry with a factory reset, which erases all saved fingerprints? [y/N] " reset_choice || true
+      else
+        reset_choice=""
+      fi
+      if [[ "$reset_choice" == [yY]* ]]; then
+        if command -v omarchy-fingerprint-repair >/dev/null 2>&1; then
+          omarchy-fingerprint-repair || true
+        elif [[ -x "$OMARCHY_PATH/bin/omarchy-fingerprint-repair" ]]; then
+          "$OMARCHY_PATH/bin/omarchy-fingerprint-repair" || true
+        fi
+        if sudo fprintd-enroll -f right-index-finger "$USER"; then
+          enrolled_ok=true
+        fi
+      else
+        echo "Enrollment failed, but existing prints were left untouched."
+        echo "Run 'omarchy setup security fingerprint' again, or 'omarchy-fingerprint-repair' to reset manually."
+        exit 1
+      fi
     fi
-    if sudo fprintd-enroll -f right-index-finger "$USER"; then
-      enrolled_ok=true
-    fi
+  else
+    exit 1
   fi
 fi
 

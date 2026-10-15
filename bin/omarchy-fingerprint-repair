@@ -12,27 +12,37 @@ fi
 
 echo "Omarchy Validity fingerprint repair: resetting sensor and restoring services..."
 
-# Keep a copy of the customized unit while we mask the service.
-backup=""
-if [ -f /etc/systemd/system/python3-validity.service ]; then
-  backup="/tmp/python3-validity.service.repair.$$"
-  cp -a /etc/systemd/system/python3-validity.service "$backup"
-  # Mask by replacing the file with a /dev/null symlink so udev/systemd cannot restart it.
-  rm -f /etc/systemd/system/python3-validity.service
-  ln -s /dev/null /etc/systemd/system/python3-validity.service
-fi
+service_unit=/etc/systemd/system/python3-validity.service
+service_backup_dir=""
+service_backup_path=""
 
-restore_unit() {
-  if [ -L /etc/systemd/system/python3-validity.service ]; then
-    rm -f /etc/systemd/system/python3-validity.service
+restore_service_unit() {
+  if [[ -L "$service_unit" ]]; then
+    rm -f "$service_unit"
   fi
-  if [ -n "$backup" ] && [ -f "$backup" ]; then
-    mv "$backup" /etc/systemd/system/python3-validity.service
+  if [[ -n "$service_backup_path" && -f "$service_backup_path" ]]; then
+    mv "$service_backup_path" "$service_unit"
+    service_backup_path=""
+  fi
+  if [[ -n "$service_backup_dir" && -d "$service_backup_dir" ]]; then
+    rm -rf -- "$service_backup_dir"
+    service_backup_dir=""
   fi
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl unmask python3-validity.service >/dev/null 2>&1 || true
 }
-trap restore_unit EXIT
+trap restore_service_unit EXIT
+
+# Keep a root-owned private copy of the customized unit while masking it.
+if [[ -f "$service_unit" ]]; then
+  service_backup_dir="$(umask 077; mktemp -d /tmp/python-validity-service.XXXXXX)"
+  chmod 700 "$service_backup_dir"
+  service_backup_path="$service_backup_dir/python3-validity.service"
+  cp -a "$service_unit" "$service_backup_path"
+  # Mask by replacing the file with a /dev/null symlink so udev/systemd cannot restart it.
+  rm -f "$service_unit"
+  ln -s /dev/null "$service_unit"
+fi
 
 systemctl daemon-reload
 systemctl stop python3-validity.service 2>/dev/null || true
@@ -101,8 +111,9 @@ cp -a /var/lib/python-validity/*.xpfwext /usr/share/python-validity/ 2>/dev/null
 # Factory reset now that the driver is not holding the device.
 python3 /usr/share/python-validity/playground/factory-reset.py
 
-restore_unit
+restore_service_unit
 sleep 15
+trap - EXIT
 
 # Persistent udev override: never autosuspend the sensor.
 cat > /etc/udev/rules.d/60-python-validity.rules <<'EOF'

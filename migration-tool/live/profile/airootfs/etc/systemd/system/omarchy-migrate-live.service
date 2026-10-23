@@ -1,0 +1,27 @@
+[Unit]
+Description=Omarchy drive migration
+Documentation=file:///usr/local/lib/omarchy-migrate/README.md
+ConditionPathExists=/run/archiso
+After=plymouth-quit-wait.service
+Before=getty@tty1.service
+# Keep the machine usable if the unit is ever started outside the live image.
+ConditionVirtualization=!container
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# A full copy can take well over the default 90-second oneshot timeout.
+TimeoutStartSec=infinity
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=no
+TTYVTDisallocate=no
+Environment=TERM=linux
+Environment=COLORTERM=truecolor
+Environment=OM_LIVE=1
+ExecStart=/usr/local/bin/omarchy-migrate-live
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+#
+# Host entry point for omarchy-migrate.
+#
+# Run this from the installed Omarchy system. It builds a bootable migration
+# USB and records the plan on the source drive. The destructive half runs from
+# the USB, with the source mounted read-only.
+
+set -uo pipefail
+
+_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_here="$(dirname -- "$_self")"
+if [[ -n ${OM_ROOT:-} && -f $OM_ROOT/lib/common.sh ]]; then
+  :
+elif [[ -f "$_here/../lib/common.sh" ]]; then
+  OM_ROOT="$(cd -- "$_here/.." && pwd)"
+elif [[ -n ${OMARCHY_PATH:-} && -f "$OMARCHY_PATH/migration-tool/lib/common.sh" ]]; then
+  OM_ROOT="$OMARCHY_PATH/migration-tool"
+elif [[ -f "$_here/../migration-tool/lib/common.sh" ]]; then
+  OM_ROOT="$(cd -- "$_here/../migration-tool" && pwd)"
+elif [[ -f /usr/local/lib/omarchy-migrate/lib/common.sh ]]; then
+  OM_ROOT="/usr/local/lib/omarchy-migrate"
+else
+  printf 'Cannot find the omarchy-migrate libraries next to %s.\n' "$_self" >&2
+  exit 1
+fi
+export OM_ROOT
+
+# shellcheck source=../lib/common.sh
+source "$OM_ROOT/lib/common.sh"
+# shellcheck source=../lib/ui.sh
+source "$OM_ROOT/lib/ui.sh"
+# shellcheck source=../lib/state.sh
+source "$OM_ROOT/lib/state.sh"
+# shellcheck source=../lib/detect.sh
+source "$OM_ROOT/lib/detect.sh"
+# shellcheck source=../lib/boot.sh
+source "$OM_ROOT/lib/boot.sh"
+# shellcheck source=../lib/menu.sh
+source "$OM_ROOT/lib/menu.sh"
+# shellcheck source=../lib/migrate.sh
+source "$OM_ROOT/lib/migrate.sh"
+# shellcheck source=../lib/usb.sh
+source "$OM_ROOT/lib/usb.sh"
+
+usage() {
+  cat <<'EOF'
+omarchy-migrate-drive — move Omarchy to another drive
+
+Usage:
+  omarchy-migrate-drive                 Interactive menu
+  omarchy-migrate-drive prepare         Prepare a migration USB
+  omarchy-migrate-drive status          Show the saved migration state
+  omarchy-migrate-drive verify          Verify the prepared USB and plan
+  omarchy-migrate-drive migrate         Explain how to run the migration
+  omarchy-migrate-drive finalize        Finish after the first boot
+  omarchy-migrate-drive version         Print the version
+
+prepare options:
+  --iso PATH        Use an already built omarchy-migrate ISO
+  --device /dev/X   Preselect the USB drive
+  --rebuild         Rebuild even when a current USB is present
+  --no-reboot       Do not offer to reboot at the end
+  --timeout SEC     Wait this long for a USB to be plugged in
+
+The source drive is never modified. Progress is stored on the source ESP so a
+failed migration can resume after a reboot, even if the USB is rewritten.
+EOF
+}
+
+cmd_version() {
+  printf 'omarchy-migrate %s\n' "$OM_VERSION"
+}
+
+cmd_status() {
+  local file
+  om_init_runtime
+  if ! file="$(state_find_any)"; then
+    ui_banner "Migration status"
+    ui_note "No migration has been prepared on this machine."
+    ui_note "Run 'omarchy-migrate-drive prepare' to create one."
+    return 1
+  fi
+
+  state_use_file "$file"
+  ui_banner "Migration status"
+  ui_kv "State" "$file"
+  printf '\n'
+  state_summary
+}
+
+cmd_verify() {
+  local file disk_uuid disk current usb_json usb_disk manifest
+  om_init_runtime
+  if ! file="$(state_find_any)"; then
+    ui_banner "Verify migration"
+    ui_error_panel "Nothing to verify" "No migration state was found." "$OM_LOG"
+    return 1
+  fi
+  state_use_file "$file"
+  state_load
+  ui_banner "Verify migration"
+
+  disk="$(state_get_or '.usb.disk' '')"
+  if [[ -z $disk ]]; then
+    ui_error_panel "No migration USB" \
+      "The saved plan has no USB drive recorded." "$OM_LOG"
+    return 1
+  fi
+  if [[ ! -b $disk ]]; then
+    ui_error_panel "USB is not connected" \
+      "$disk is not present. Plug the prepared stick back in." "$OM_LOG"
+    return 1
+  fi
+
+  usb_json="$(detect_existing_migration_usbs | jq -c --arg disk "$disk" 'select(.disk == $disk)' | head -n1)"
+  if [[ -z $usb_json ]]; then
+    ui_error_panel "USB is not a migration stick" \
+      "$disk does not expose a readable omarchy-migrate image." "$OM_LOG"
+    return 1
+  fi
+  manifest="$(jq -c '.manifest' <<<"$usb_json")"
+  if ! usb_manifest_is_current "$manifest"; then
+    ui_error_panel "USB image is out of date" \
+      "Rebuild the stick with 'omarchy-migrate-drive prepare --rebuild'." "$OM_LOG"
+    return 1
+  fi
+
+  ui_kv "USB" "$(detect_disk_description "$disk")"
+  ui_kv "Image" "$(jq -r '.version // "unknown"' <<<"$manifest")"
+  ui_kv "Plan for" "$(state_get '.target.disk // "?"')"
+  ui_kv "Phase" "$(state_get '.phase // "?"')"
+  ui_success_panel "Ready" "The migration USB matches this version of the tool."
+}
+
+cmd_interactive() {
+  local choice
+  om_init_runtime
+  ui_color_init
+  ui_banner "Drive migration"
+  printf '  Move this Omarchy installation to a new drive. The old drive is left\n'
+  printf '  untouched, and progress survives a reboot.\n'
+
+  choice="$(ui_choose "What would you like to do?" \
+    "Prepare a migration USB" \
+    "Show migration status" \
+    "Verify the prepared USB" \
+    "Quit")" || return 0
+
+  case "$choice" in
+    "Prepare a migration USB")
+      usb_prepare "$@"
+      ;;
+    "Show migration status")
+      cmd_status
+      ;;
+    "Verify the prepared USB")
+      cmd_verify
+      ;;
+    *) return 0 ;;
+  esac
+}
+
+main() {
+  local command="${1:-interactive}"
+  case "$command" in
+    -h | --help | help)
+      usage
+      return 0
+      ;;
+    -V | --version | version)
+      cmd_version
+      return 0
+      ;;
+  esac
+
+  # Everything else needs root. Omarchy launches this through a floating
+  # terminal, so sudo can use the fingerprint reader or the user's password.
+  if [[ $EUID -ne 0 ]]; then
+    om_reexec_root "$@"
+  fi
+
+  case "$command" in
+    prepare)
+      shift
+      usb_prepare "$@"
+      ;;
+    status)
+      cmd_status
+      ;;
+    verify)
+      cmd_verify
+      ;;
+    migrate)
+      migrate_host
+      ;;
+    finalize)
+      boot_finalize
+      ;;
+    interactive | "")
+      cmd_interactive
+      ;;
+    *)
+      printf 'Unknown command: %s\n\n' "$command" >&2
+      usage >&2
+      return 2
+      ;;
+  esac
+}
+
+main "$@"

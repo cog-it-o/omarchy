@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# omarchy:summary=Run the Omarchy drive migration from the live USB
+# omarchy:args=[migrate|status|finalize|shell]
+# omarchy:requires-sudo=true
+
+set -euo pipefail
+
+_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_here="$(dirname -- "$_self")"
+
+if [[ -z ${OMARCHY_PATH:-} ]]; then
+  if [[ -d "$_here/../migration-tool" ]]; then
+    OMARCHY_PATH="$(cd -- "$_here/.." && pwd)"
+  else
+    OMARCHY_PATH="/usr/share/omarchy"
+  fi
+fi
+export OMARCHY_PATH
+export OM_ROOT="${OM_ROOT:-$OMARCHY_PATH/migration-tool}"
+export OM_LIVE="${OM_LIVE:-1}"
+
+exec "$OM_ROOT/bin/omarchy-migrate-live" "$@"

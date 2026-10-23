@@ -1,0 +1,11 @@
+{
+  // Add this entry to ~/.config/omarchy/extensions/omarchy-menu.jsonc,
+  // or run install.sh (recommended), which inserts it for every user.
+  "system.migrate-drive": {
+    "icon": "󰋊",
+    "label": "Migrate Omarchy",
+    "action": "omarchy-launch-floating-terminal-with-presentation omarchy-migrate-drive",
+    "description": "Move this Omarchy installation to another drive",
+    "when": "omarchy-cmd-present omarchy-migrate-drive"
+  }
+}

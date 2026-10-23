@@ -1,0 +1,16 @@
+[Unit]
+Description=Finish the Omarchy drive migration
+Documentation=file:///usr/share/omarchy/migration-tool/README.md
+ConditionPathExists=/var/lib/omarchy-migration/state.json
+After=local-fs.target
+Before=graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/local/bin/omarchy-migrate-drive finalize
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

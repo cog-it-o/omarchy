@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+#
+# Live entry point for omarchy-migrate.
+#
+# This runs from the migration USB. It auto-starts on tty1 and needs no
+# arguments, but the subcommands are useful for debugging a failed run.
+
+set -uo pipefail
+
+_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_here="$(dirname -- "$_self")"
+if [[ -n ${OM_ROOT:-} && -f $OM_ROOT/lib/common.sh ]]; then
+  :
+elif [[ -f "$_here/../lib/common.sh" ]]; then
+  OM_ROOT="$(cd -- "$_here/.." && pwd)"
+elif [[ -n ${OMARCHY_PATH:-} && -f "$OMARCHY_PATH/migration-tool/lib/common.sh" ]]; then
+  OM_ROOT="$OMARCHY_PATH/migration-tool"
+elif [[ -f "$_here/../migration-tool/lib/common.sh" ]]; then
+  OM_ROOT="$(cd -- "$_here/../migration-tool" && pwd)"
+elif [[ -f /usr/local/lib/omarchy-migrate/lib/common.sh ]]; then
+  OM_ROOT="/usr/local/lib/omarchy-migrate"
+else
+  printf 'Cannot find the omarchy-migrate libraries next to %s.\n' "$_self" >&2
+  exit 1
+fi
+export OM_ROOT
+export OM_LIVE=1
+
+# shellcheck source=../lib/common.sh
+source "$OM_ROOT/lib/common.sh"
+# shellcheck source=../lib/ui.sh
+source "$OM_ROOT/lib/ui.sh"
+# shellcheck source=../lib/state.sh
+source "$OM_ROOT/lib/state.sh"
+# shellcheck source=../lib/detect.sh
+source "$OM_ROOT/lib/detect.sh"
+# shellcheck source=../lib/boot.sh
+source "$OM_ROOT/lib/boot.sh"
+# shellcheck source=../lib/menu.sh
+source "$OM_ROOT/lib/menu.sh"
+# shellcheck source=../lib/migrate.sh
+source "$OM_ROOT/lib/migrate.sh"
+
+usage() {
+  cat <<'EOF'
+omarchy-migrate-live — run the Omarchy drive migration
+
+Usage:
+  omarchy-migrate-live              Start (or resume) the migration
+  omarchy-migrate-live migrate      Same as above
+  omarchy-migrate-live status       Show the saved state from the source drive
+  omarchy-migrate-live finalize     Finish a migration from the target system
+  omarchy-migrate-live shell        Open a root shell
+
+The tool finds the source drive by serial number, unlocks it read-only, and
+resumes at the first unfinished step. The USB itself holds no progress.
+EOF
+}
+
+cmd_status() {
+  local esps count
+  esps="$(detect_state_esps | jq -s '.')"
+  count="$(jq 'length' <<<"$esps")"
+  ui_banner "Migration status"
+  if ((count == 0)); then
+    ui_note "No migration state was found on any connected drive."
+    return 1
+  fi
+  local i part
+  for ((i = 0; i < count; i++)); do
+    part="$(jq -r ".[$i].part" <<<"$esps")"
+    ui_section "$part"
+    jq -r ".[$i].state | \"run \(.run_id // \"?\")\nphase \(.phase // \"?\")\nsource \(.source.disk // \"?\")\ntarget \(.target.disk // \"?\")\nfailed \(.failed_step // \"none\")\"" <<<"$esps"
+    state_use_file "$OM_STATE_MNT/omarchy-migration/state.json"
+  done
+  return 0
+}
+
+main() {
+  local command="${1:-migrate}"
+  case "$command" in
+    -h | --help | help)
+      usage
+      return 0
+      ;;
+    -V | --version | version)
+      printf 'omarchy-migrate %s\n' "$OM_VERSION"
+      return 0
+      ;;
+  esac
+
+  if [[ $EUID -ne 0 ]]; then
+    om_reexec_root "$@"
+  fi
+  export OM_LIVE=1
+
+  case "$command" in
+    migrate | --auto | "")
+      migrate_live
+      local rc=$?
+      if ((rc != 0)) && [[ -t 0 ]]; then
+        printf '\n'
+        printf '  The migration did not finish. Progress is saved on the source drive.\n'
+        printf '  Press Enter to open a root shell, or reboot and run the tool again.\n'
+        IFS= read -r _ || true
+        exec bash -l
+      fi
+      return "$rc"
+      ;;
+    status)
+      cmd_status
+      ;;
+    finalize)
+      boot_finalize
+      ;;
+    shell)
+      exec bash -l
+      ;;
+    *)
+      printf 'Unknown command: %s\n\n' "$command" >&2
+      usage >&2
+      return 2
+      ;;
+  esac
+}
+
+main "$@"

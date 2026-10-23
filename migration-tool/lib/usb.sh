@@ -447,7 +447,13 @@ EOF
   local need_build=1
   if ((rebuild == 0)) && [[ -z $iso_override ]]; then
     if usb_find_ready; then
-      need_build=0
+      if usb_manifest_is_current "$USB_MANIFEST"; then
+        need_build=0
+      else
+        ui_warn "A migration USB was found, but it is from an older version of the tool."
+        ui_note "Rebuilding it so the live system matches this installation."
+        need_build=1
+      fi
     fi
   fi
 

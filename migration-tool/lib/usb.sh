@@ -76,6 +76,8 @@ usb_candidates() {
     detect_disk_is_usb "$disk" || continue
     [[ -n $source && $disk == "$source" ]] && continue
     [[ -n $live && $disk == "$live" ]] && continue
+    # Empty card readers and tiny sticks cannot hold the live image.
+    (($(detect_size_bytes "$disk" 2>/dev/null || echo 0) >= 2 * 1024 * 1024 * 1024)) || continue
     printf '%s\n' "$disk"
   done < <(detect_disks)
 }

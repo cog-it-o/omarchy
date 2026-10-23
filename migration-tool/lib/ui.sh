@@ -40,6 +40,7 @@ ui_clear() {
 ui_banner() {
   local subtitle="${1:-Drive migration}"
   ui_color_init
+  ui_clear
   printf '\n'
   if [[ $_UI_HAVE_COLOR == 1 ]]; then
     printf '\033[%sm' "$UI_ACCENT"

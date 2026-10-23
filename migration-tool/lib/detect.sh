@@ -86,12 +86,17 @@ detect_live_usb_disk() {
       om_parent_disk "$source" && return 0
     fi
   done
-  # Fall back to the labelled live filesystem.
-  source="$(blkid -L "$MIGRATION_ISO_LABEL" -o device 2>/dev/null | head -n1)"
-  [[ -n $source ]] && {
-    om_parent_disk "$source"
-    return
-  }
+  # Only treat a labelled migration medium as the live disk when this
+  # process is actually running from it. On an installed system a stick with
+  # the same label is just a prepared (possibly stale) migration USB and must
+  # remain selectable for rebuilding.
+  if om_is_live; then
+    source="$(blkid -L "$MIGRATION_ISO_LABEL" -o device 2>/dev/null | head -n1)"
+    [[ -n $source ]] && {
+      om_parent_disk "$source"
+      return
+    }
+  fi
   return 1
 }
 

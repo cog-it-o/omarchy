@@ -74,6 +74,7 @@ detect_current_source_disk() {
   local source
   source="$(findmnt -no SOURCE / 2>/dev/null)" || return 1
   [[ -n $source ]] || return 1
+  source="${source%%\[*}"
   om_parent_disk "$source"
 }
 
@@ -330,6 +331,7 @@ detect_source_analysis_host() {
   esp="$(detect_esp_partitions "$disk" | head -n1)"
 
   root_source="$(findmnt -no SOURCE /)"
+  root_source="${root_source%%\[*}"
   root_parent="$(om_parent_disk "$root_source" 2>/dev/null || true)"
   luks=""
   if [[ $(om_part_field "$root_source" FSTYPE 2>/dev/null) == "$LUKS_FSTYPE" ]]; then

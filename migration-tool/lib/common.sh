@@ -226,7 +226,7 @@ om_notify() {
 # Print the whole-disk device that contains a partition or mapper device.
 # Walks up the lsblk parent chain (mapper -> partition -> disk).
 om_parent_disk() {
-  local cur="$1" parent type
+  local cur="${1%%\[*}" parent type base
   local -i guard=0
   while ((guard++ < 16)); do
     type="$(lsblk -dno TYPE -- "$cur" 2>/dev/null | head -n1 | tr -d '[:space:]')"
@@ -235,6 +235,14 @@ om_parent_disk() {
       return 0
     fi
     parent="$(lsblk -no PKNAME -- "$cur" 2>/dev/null | head -n1 | tr -d '[:space:]')"
+    if [[ -z $parent ]]; then
+      # Device-mapper targets (LUKS/LVM) do not report PKNAME; resolve them
+      # through their sysfs slave list instead.
+      base="$(basename -- "$(readlink -f -- "$cur" 2>/dev/null)" 2>/dev/null)"
+      if [[ -n $base && -d /sys/block/$base/slaves ]]; then
+        parent="$(find /sys/block/$base/slaves -maxdepth 1 -mindepth 1 -printf '%f\n' 2>/dev/null | head -n1)"
+      fi
+    fi
     [[ -n $parent ]] || return 1
     cur="/dev/$parent"
   done

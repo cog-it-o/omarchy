@@ -185,8 +185,22 @@ usb_build_iso() {
   fi
 
   om_log INFO "running mkarchiso"
-  printf '\n  Building the live image. This downloads packages on first use and can take several minutes.\n\n'
-  if ! mkarchiso -v -w "$work" -o "$out" "$profile" >>"$OM_LOG" 2>&1; then
+  printf '\n  Building the live image. This downloads packages on first use and can take several minutes.\n'
+  printf '  Progress is shown below; full output is in %s.\n\n' "$OM_LOG"
+
+  local mkpid elapsed last
+  mkarchiso -v -w "$work" -o "$out" "$profile" >>"$OM_LOG" 2>&1 &
+  mkpid=$!
+  elapsed=0
+  while kill -0 "$mkpid" 2>/dev/null; do
+    last="$(tail -n 40 "$OM_LOG" 2>/dev/null | grep '\[mkarchiso\]' | tail -n 1 | sed 's/^[[:space:]]*//')"
+    [[ -n $last ]] || last="Preparing the live image..."
+    printf '\r\033[K  [%4ss] %s' "$elapsed" "$last"
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+  printf '\r\033[K'
+  if ! wait "$mkpid"; then
     om_error "mkarchiso failed."
     printf '  See %s for details.\n' "$OM_LOG"
     return 1

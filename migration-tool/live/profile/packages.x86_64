@@ -27,3 +27,4 @@ systemd
 tar
 util-linux
 zstd
+syslinux

@@ -16,7 +16,7 @@
 : "${SRC_ROOT:=}"
 : "${SRC_ESP_PART:=}"
 : "${SRC_ESP_PARTUUID:=}"
-: "${SRC_ESP_MNT:=$OM_SRC_ESP_MNT}"
+: "${SRC_ESP_MNT:=${OM_SRC_ESP_MNT:-/boot/efi}}"
 : "${ROOT_SUBVOL:=}"
 
 : "${TGT_DISK:=}"
@@ -25,8 +25,8 @@
 : "${TGT_ESP_NUM:=1}"
 : "${TGT_MAPPER:=omarchy-target}"
 : "${TGT_DEV:=}"
-: "${TGT_TOP:=$OM_TGT_TOP}"
-: "${TGT_ROOT:=$OM_TGT_MNT}"
+: "${TGT_TOP:=${OM_TGT_TOP:-}}"
+: "${TGT_ROOT:=${OM_TGT_MNT:-/mnt/target-root}}"
 
 : "${PLAN_SOURCE_ROOT:=/}"
 : "${STATE_ON_ESP:=0}"

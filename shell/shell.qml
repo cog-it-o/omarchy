@@ -25,6 +25,13 @@ ShellRoot {
   property BrightnessKeys brightnessKeys: BrightnessKeys { host: shell }
   property BackgroundIntro bootIntro: BackgroundIntro { host: shell }
 
+  // Theme color properties - CSS variables for bar plugin integration
+  // These expose the bar.* color pattern structure from themes/colors.toml
+  property string themeForeground: "#ffffff"
+  property string themeBackground: "#1a1b26"
+  property string themeAccent: "#89b4fa"
+  property string themeUrgent: "#f38ba8"
+
   property string home: Quickshell.env("HOME")
 
   // The omarchy-shell host is the long-running entry point. Plugins live in

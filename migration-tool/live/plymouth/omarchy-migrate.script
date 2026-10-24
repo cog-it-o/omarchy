@@ -252,15 +252,26 @@ fun layout() {
 
 layout();
 
-#----------------------------------------- Message --------------------------------
+#----------------------------------------- Splash Message --------------------------------
 
+# Display splash message when Plymouth shows text messages (e.g., during boot)
 message_sprite = Sprite();
-message_sprite.SetPosition(10, 10, 10000);
+message_sprite.SetPosition(0, 0, 10000);
+
+# Use accent color for splash messages (can be configured via colors.toml)
+splash_color = (0.529, 0.706, 0.988);  # Accent blue (#89b4fa)
 
 fun display_message_callback(text) {
-  message = Image.Text(text, 1, 1, 1);
+  # Create centered, colored text message
+  message = Image.Text(text, splash_color, 1.2, 1.0);  # color, font_size, opacity
   message_sprite.SetImage(message);
   message_sprite.SetOpacity(1);
+  
+  # Center the message horizontally and vertically with logo area
+  msg_width = message.GetWidth();
+  msg_height = message.GetHeight();
+  message_sprite.SetX((Window.GetWidth() - msg_width) / 2);
+  message_sprite.SetY((Window.GetHeight() - msg_height) / 2 - logo.sprite.GetY() - logo.image.GetHeight() / 2);
 }
 
 fun hide_message_callback(text) {

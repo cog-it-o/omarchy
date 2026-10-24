@@ -252,6 +252,83 @@ Removed firmware entries: ${removed[*]:-none}
 EOF
   chmod 644 "$report" 2>/dev/null || true
 
+  # Copy timezone configuration from source ESP to target system
+  copy_timezone_from_source() {
+    local source_esp="$1" target_root="$2" log_file="$3"
+    
+    # If called without mount point arguments, derive them for first boot scenario
+    if [[ -z "$source_esp" && -n "${OM_LIVE:-}" ]]; then
+      # Running on live USB during migrate_live - derive paths from current state
+      source_esp="$(findmnt -no SOURCE -M /boot 2>/dev/null || true)"
+      target_root="/run/live/mount/target"
+    elif [[ -z "$source_esp" && -z "${OM_LIVE:-}" ]]; then
+      # Running directly on target system during first boot - use standard mount points
+      source_esp="$(findmnt -no SOURCE -M /boot 2>/dev/null || true)"
+      target_root="/"
+    fi
+    
+    if [[ -z "$source_esp" ]]; then
+      om_log WARN "Cannot determine source ESP mount point; skipping timezone copy."
+      return 1
+    fi
+
+    local source_etc="${source_esp}/etc"
+    local target_etc="/etc"
+    
+    # Validate that source and target filesystems are mounted before proceeding
+    if ! mountpoint -q "$target_root" >/dev/null 2>&1; then
+      om_log WARN "Target root is not a mount point; skipping timezone copy."
+      return 1
+    fi
+    
+    if [[ ! -d "$source_esp" || ! -d "${source_etc}" ]]; then
+      om_log WARN "Source ESP not available: $source_esp (etc: ${source_etc})"
+      return 1
+    fi
+
+    om_log INFO "Copying timezone configuration from source to target..."
+    
+    local tzdata_source="${source_esp}/usr/share/zoneinfo"
+    local tzdata_target="${target_root}/usr/share/zoneinfo"
+    local sys_config_source="${source_etc}/timedate.conf"
+    local sys_config_target="/etc/timedate.conf"
+    
+    # Copy tzdata if available
+    if [[ -d "$tzdata_source" ]]; then
+      om_log INFO "Source timezone data directory found: $tzdata_source"
+      mkdir -p "$tzdata_target" 2>/dev/null || {
+        om_log WARN "Cannot create timezone target directory: $tzdata_target"
+        return 1
+      }
+      
+      if rsync -a --no-owner --no-group "$tzdata_source/" "$tzdata_target/" >>"$log_file" 2>&1; then
+        om_log INFO "Timezone data copied successfully"
+      else
+        om_log WARN "Partial timezone copy, using system default"
+        return 1
+      fi
+    else
+      om_log WARN "No timezone data found at $tzdata_source"
+      return 1
+    fi
+    
+    # Copy timedate.conf if available on source
+    if [[ -r "$sys_config_source" ]]; then
+      cp -n "$sys_config_source" "$sys_config_target" 2>/dev/null || {
+        om_log WARN "Cannot copy timedate.conf from source: $sys_config_source"
+      }
+    fi
+    
+    return 0
+  }
+
+  # Execute timezone copy in target chroot after filesystems are created
+  # During first boot, we're running directly on target - mount points are at their final locations
+  local tz_success=true
+  if ! copy_timezone_from_source "" "" "$OM_LOG"; then
+    om_log WARN "Timezone configuration may differ from source system"
+  fi
+
   local tmp="${state_file}.tmp.$$"
   jq -S --arg now "$now" --arg report "$report" '
     .pending_finalize = false

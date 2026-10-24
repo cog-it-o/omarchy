@@ -1,5 +1,6 @@
 mode = "dark"
 
+logo_color = "#798186"
 accent = "#798186"
 selection = "#343d41"
 muted = "#4b4e55"

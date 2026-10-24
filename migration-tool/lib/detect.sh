@@ -7,6 +7,7 @@
 # log file, never stdout, so callers can capture results safely.
 
 : "${ESP_GUID:=c12a7328-f81f-11d2-ba4b-00a0c93ec93b}"
+: "${EF_SYSTEM_BOOT_GUID:=0xef}"
 : "${LUKS_FSTYPE:=crypto_LUKS}"
 : "${MIGRATION_ISO_LABEL:=OMARCHY_MIGRATE}"
 : "${MIGRATION_PAYLOAD_LABEL:=OMARCHY-MIGR}"
@@ -108,9 +109,11 @@ detect_esp_partitions() {
     parttype="$(om_part_field "$part" PARTTYPE)"
     mnt="$(findmnt -rn -S "$part" -o TARGET 2>/dev/null | head -n1)"
     if [[ $fstype == vfat ]] && {
+      # Match by ESP UUID or EF System Boot type (0xef hex)
       [[ ${parttype,,} == "$ESP_GUID" ]] ||
-        [[ $mnt == /boot || $mnt == /efi || $mnt == /boot/efi ]] ||
-        [[ $(om_part_field "$part" LABEL) =~ ^(EFI|SYSTEM|ESP) ]]
+      [[ ${parttype,,} == "${EF_SYSTEM_BOOT_GUID,,}" ]] ||
+      [[ $mnt == /boot || $mnt == /efi || $mnt == /boot/efi ]] ||
+      [[ $(om_part_field "$part" LABEL) =~ ^(EFI|SYSTEM|ESP) ]]
     }; then
       printf '%s\n' "$part"
     fi

@@ -208,12 +208,17 @@ efi_create_entry() {
   local disk=$1 partnum=$2 label=$3 loader=$4 num err
   # Do not delete existing entries here; the caller decides cleanup.
   # (Previously this deleted ALL entries with the label, even on other drives.)
-  err=$(efibootmgr --create --disk "$disk" --part "$partnum" --label "$label" --loader "$loader" 2>&1) || {
-    echo "efibootmgr --create failed: $err" >&2
+  local out
+  out=$(efibootmgr --create --disk "$disk" --part "$partnum" --label "$label" --loader "$loader" 2>&1) || {
+    echo "efibootmgr --create failed: $out" >&2
     return 1
   }
-  num=$(efi_find_label "$label" | head -n1)
-  [[ -n $num ]] || { echo "efibootmgr created entry but could not find it by label." >&2; return 1; }
+  # Extract the new entry number from efibootmgr output (e.g. "Boot0025* ...").
+  num=$(printf '%s\n' "$out" | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\).*/\1/p' | head -n1)
+  if [[ -z $num ]]; then
+    num=$(efi_find_partuuid "$(blkid -s PARTUUID -o value "${disk}$( [[ $disk == *[0-9] ]] && echo p )${partnum}" 2>/dev/null)" | head -n1)
+  fi
+  [[ -n $num ]] || { echo "efibootmgr created entry but could not determine its number." >&2; return 1; }
   printf '%s\n' "$num"
 }
 
@@ -267,7 +272,7 @@ is_uefi() { [[ -d /sys/firmware/efi ]]; }
 
 # EFI fallback bootloader filename for the current platform.
 efi_loader_path() {
-  if [[ $(uname -m) == aarch64 ]]; then
+  if command -v omarchy-hw-aarch64 >/dev/null 2>&1 && omarchy-hw-aarch64; then
     printf '%s\n' '\EFI\BOOT\BOOTAA64.EFI'
   else
     printf '%s\n' '\EFI\BOOT\BOOTX64.EFI'
@@ -836,7 +841,8 @@ main() {
             echo "Set the new drive first in your firmware boot menu manually." >&2
           else
             # Verify the new ESP has the Limine fallback bootloader.
-            if ! mdir -i "${selected}$( [[ $selected == *[0-9] ]] && echo p )1" ::/EFI/BOOT/$(basename "$(efi_loader_path)") >/dev/null 2>&1; then
+            if ! mdir -i "${selected}$( [[ $selected == *[0-9] ]] && echo p )1" ::/EFI/BOOT/BOOTX64.EFI >/dev/null 2>&1 && \
+               ! mdir -i "${selected}$( [[ $selected == *[0-9] ]] && echo p )1" ::/EFI/BOOT/BOOTAA64.EFI >/dev/null 2>&1; then
               echo "Warning: Limine fallback bootloader (BOOTX64.EFI) not found on the new ESP." >&2
               echo "The new drive may not be bootable. Re-run migration or install Limine manually." >&2
             fi

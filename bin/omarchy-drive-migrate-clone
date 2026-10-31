@@ -234,7 +234,7 @@ ask_luks_passphrase() {
       echo "Migration cancelled."
       exit 1
     }
-    if [[ $first == $second ]]; then
+    if [[ $first == "$second" ]]; then
       LUKS_PASSPHRASE=$first
       return 0
     fi
@@ -365,7 +365,7 @@ update_configuration() {
   if [[ -f $limine_default ]]; then
     # Update cryptdevice PARTUUID (LUKS) and root= argument (plain roots).
     sed -i "s|PARTUUID=[0-9a-fA-F-]*:root|PARTUUID=${new_root_spec#PARTUUID=}:root|g" "$limine_default"
-    sed -i -E "s|(root=)(UUID|PARTUUID)=[^ ]+|\1${new_root_spec}|" "$limine_default"
+    sed -i -E "s|(root=)(UUID|PARTUUID)=[^ \"']+|\1${new_root_spec}|" "$limine_default"
     log_msg "updated /etc/default/limine with new PARTUUID/root spec"
   fi
 
@@ -436,8 +436,9 @@ verify_migration() {
     log_msg "VERIFICATION FAILED: new root partition missing from kernel cmdline"
     failures=$((failures + 1))
   fi
-  if [[ ! -f "$WORK/esp/EFI/Linux/omarchy_linux-omarchy.efi" && ! -f "$WORK/esp/EFI/Linux/omarchy_linux.efi" ]]; then
-    log_msg "VERIFICATION FAILED: expected UKI not found on the new ESP"
+  # Check for any UKI matching the installed kernels, not just two fixed names.
+  if ! find "$WORK/esp/EFI/Linux" -maxdepth 1 -name 'omarchy_linux*.efi' -print -quit 2>/dev/null | grep -q .; then
+    log_msg "VERIFICATION FAILED: no kernel UKI found on the new ESP"
     failures=$((failures + 1))
   fi
   if [[ ! -e $system_root/usr/bin/bash ]]; then

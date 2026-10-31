@@ -222,7 +222,7 @@ ask_luks_passphrase() {
   while (( attempts < 3 )); do
     first=$(gum input --password --header "Choose a passphrase to unlock the new drive at boot") || {
       echo "Migration cancelled."
-      exit 0
+      exit 1
     }
     if [[ -z $first ]]; then
       echo "The passphrase cannot be empty."
@@ -231,7 +231,7 @@ ask_luks_passphrase() {
     fi
     second=$(gum input --password --header "Repeat the passphrase") || {
       echo "Migration cancelled."
-      exit 0
+      exit 1
     }
     if [[ $first == "$second" ]]; then
       LUKS_PASSPHRASE=$first
@@ -241,7 +241,7 @@ ask_luks_passphrase() {
     attempts=$((attempts + 1))
   done
   echo "Too many mismatches. Migration cancelled."
-  exit 0
+  exit 1
 }
 
 prepare_destination_root() {
@@ -360,19 +360,26 @@ update_configuration() {
   # actually reads (not /etc/kernel/cmdline). Update the cryptdevice PARTUUID.
   local limine_default="$WORK/root/${ROOT_SUBVOL:+$ROOT_SUBVOL/}etc/default/limine"
   if [[ -f $limine_default ]]; then
+    # Update cryptdevice PARTUUID (LUKS) and root= argument (plain roots).
     sed -i "s|PARTUUID=[0-9a-fA-F-]*:root|PARTUUID=${new_root_spec#PARTUUID=}:root|g" "$limine_default"
-    log_msg "updated /etc/default/limine with new PARTUUID"
+    sed -i -E "s|(root=)(UUID|PARTUUID)=[^ ]+|\1${new_root_spec}|" "$limine_default"
+    log_msg "updated /etc/default/limine with new PARTUUID/root spec"
   fi
 
-  # Recompute resume_offset for the recreated swapfile.
+  # Recompute resume_offset for the recreated swapfile and update resume=UUID.
   local resume_conf="$WORK/root/${ROOT_SUBVOL:+$ROOT_SUBVOL/}etc/limine-entry-tool.d/resume.conf"
-  if [[ -f $resume_conf && -e "$WORK/root/${ROOT_SUBVOL:+$ROOT_SUBVOL/}swap/swapfile" ]]; then
+  local swapfile="$WORK/root/${ROOT_SUBVOL:+$ROOT_SUBVOL/}swap/swapfile"
+  if [[ -e $swapfile ]]; then
     local new_offset
-    new_offset=$(filefrag -v "$WORK/root/${ROOT_SUBVOL:+$ROOT_SUBVOL/}swap/swapfile" 2>/dev/null | \
-      awk 'NR==4 {gsub(/\./,"",$4); print $4; exit}')
-    if [[ -n $new_offset ]]; then
+    new_offset=$(btrfs inspect-internal map-swapfile "$swapfile" 2>/dev/null | \
+      awk '/Resume offset:/ {print $3; exit}')
+    if [[ -n $new_offset && -f $resume_conf ]]; then
       sed -i "s|resume_offset=[0-9]*|resume_offset=$new_offset|" "$resume_conf"
       log_msg "updated resume_offset to $new_offset in resume.conf"
+    fi
+    # Update resume=UUID in /etc/default/limine (btrfs UUID changes).
+    if [[ -f "$limine_default" ]]; then
+      sed -i "s|resume=/dev/mapper/root resume_offset=[0-9]*|resume=/dev/mapper/root resume_offset=${new_offset:-0}|" "$limine_default" 2>/dev/null || true
     fi
   fi
 }
@@ -609,11 +616,9 @@ main() {
     "" \
     "Log saved to: $LOG_FILE" \
     "" \
-    "The old drive is untouched. After rebooting, pick the new drive in the boot menu."
+    "The old drive is untouched. Reboot and select the new drive in the boot menu."
 
-  if gum confirm --default=false "Reboot now to start from the new drive?" --affirmative="Yes, reboot" --negative="No, stay here"; then
-    systemctl reboot
-  fi
+  echo "Migration complete. Reboot to start from the new drive."
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then

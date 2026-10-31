@@ -59,7 +59,7 @@ is_source_disk() {
   local check src
   check=$(readlink -f -- "$1")
   while read -r src; do
-    [[ "$(readlink -f -- "$src")" == "$check" ]] && return 0
+    [[ $(readlink -f -- "$src") == $check ]] && return 0
   done < <(current_installation_disks 2>/dev/null)
   return 1
 }
@@ -234,7 +234,7 @@ ask_luks_passphrase() {
       echo "Migration cancelled."
       exit 1
     }
-    if [[ $first == "$second" ]]; then
+    if [[ $first == $second ]]; then
       LUKS_PASSPHRASE=$first
       return 0
     fi
@@ -436,8 +436,8 @@ verify_migration() {
     log_msg "VERIFICATION FAILED: new root partition missing from kernel cmdline"
     failures=$((failures + 1))
   fi
-  if ! find "$WORK/esp" -name '*.efi' -print -quit | grep -q .; then
-    log_msg "VERIFICATION FAILED: no UKI (.efi) on the new ESP"
+  if [[ ! -f "$WORK/esp/EFI/Linux/omarchy_linux-omarchy.efi" && ! -f "$WORK/esp/EFI/Linux/omarchy_linux.efi" ]]; then
+    log_msg "VERIFICATION FAILED: expected UKI not found on the new ESP"
     failures=$((failures + 1))
   fi
   if [[ ! -e $system_root/usr/bin/bash ]]; then
@@ -453,16 +453,19 @@ verify_migration() {
 
 cleanup() {
   if [[ -n ${WORK:-} && -d $WORK ]]; then
-    # Unmount leaf-first with lazy fallback so rm never deletes through a
-    # still-mounted bind mount (which would destroy real /dev nodes).
+    # Unmount leaf-first with lazy fallback.
     for target in "$WORK/system/dev" "$WORK/system/sys" "$WORK/system/proc" \
                  "$WORK/system/boot" "$WORK/system" "$WORK/esp" "$WORK/root"; do
       while mountpoint -q "$target" 2>/dev/null; do
         umount "$target" 2>/dev/null || umount -l "$target" 2>/dev/null || break
       done
     done
-    # Only remove our own directories after confirming unmounts succeeded.
-    rm -rf "$WORK" 2>/dev/null || true
+    # Only remove if nothing is still mounted below WORK.
+    if ! find "$WORK" -mindepth 1 -type d -exec mountpoint -q {} \; -print 2>/dev/null | grep -q .; then
+      rm -rf "$WORK" 2>/dev/null || true
+    else
+      log_msg "WARNING: mounts remain under $WORK; leaving directory in place"
+    fi
   fi
   if [[ -n ${MAPPER:-} ]]; then
     cryptsetup close "$MAPPER" 2>/dev/null || true
@@ -488,8 +491,7 @@ main() {
     exit 1
   fi
 
-  export OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
-  export PATH="$OMARCHY_PATH/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
+  export PATH="${OMARCHY_PATH:-/usr/share/omarchy}/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
 
   LOG_FILE="/var/log/omarchy-drive-migrate-$(date +%Y%m%dT%H%M%S).log"
   trap on_error ERR
@@ -566,7 +568,7 @@ main() {
     ROOT_COMPRESS=""
   fi
   ESP_LABEL=$(lsblk -dno LABEL "$SRC_ESP" 2>/dev/null | tr -d '[:space:]' || true)
-  if [[ -z $ESP_LABEL || ${#ESP_LABEL} -gt 11 ]]; then
+  if [[ -z $ESP_LABEL ]] || (( ${#ESP_LABEL} > 11 )); then
     ESP_LABEL=ESP
   fi
 
@@ -671,6 +673,6 @@ SVCEOF
   echo "Migration complete. Reboot to start from the new drive."
 }
 
-if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+if [[ ${BASH_SOURCE[0]} == $0 ]]; then
   main "$@"
 fi

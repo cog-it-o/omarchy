@@ -52,7 +52,7 @@ is_source_disk() {
   local check src
   check=$(readlink -f -- "$1")
   while read -r src; do
-    [[ "$(readlink -f -- "$src")" == "$check" ]] && return 0
+    [[ $(readlink -f -- "$src") == $check ]] && return 0
   done < <(current_installation_disks 2>/dev/null)
   return 1
 }
@@ -112,7 +112,7 @@ classify_destination_disks() {
   while IFS=$'\t' read -r drive size; do
     skip=0
     for source in "${source_disks[@]}"; do
-      [[ $drive == "$source" ]] && skip=1
+      [[ $drive == $source ]] && skip=1
     done
     (( skip == 0 )) || continue
 
@@ -180,14 +180,14 @@ efi_find_partuuid() {
   local pu=$1 line
   [[ -n $pu ]] || return 0
   while IFS= read -r line; do
-    [[ $(efi_entry_partuuid "$line") == "$pu" ]] && efi_entry_num "$line"
+    [[ $(efi_entry_partuuid "$line") == $pu ]] && efi_entry_num "$line" || true
   done < <(efi_entries)
 }
 
 efi_find_label() {
   local label=$1 line
   while IFS= read -r line; do
-    [[ $(efi_entry_label "$line") == "$label" ]] && efi_entry_num "$line"
+    [[ $(efi_entry_label "$line") == $label ]] && efi_entry_num "$line" || true
   done < <(efi_entries)
 }
 
@@ -201,11 +201,8 @@ efi_create_entry() {
   # usage: efi_create_entry <disk> <partnum> <label> <loader>  -> prints boot number
   # Captures stderr for diagnostics.
   local disk=$1 partnum=$2 label=$3 loader=$4 num err
-  # replace duplicate label
-  local old
-  while IFS= read -r old; do
-    [[ -n $old ]] && efi_delete_num "$old"
-  done < <(efi_find_label "$label")
+  # Do not delete existing entries here; the caller decides cleanup.
+  # (Previously this deleted ALL entries with the label, even on other drives.)
   err=$(efibootmgr --create --disk "$disk" --part "$partnum" --label "$label" --loader "$loader" 2>&1) || {
     echo "efibootmgr --create failed: $err" >&2
     return 1
@@ -263,6 +260,15 @@ efi_partnum() {
 
 is_uefi() { [[ -d /sys/firmware/efi ]]; }
 
+# EFI fallback bootloader filename for the current platform.
+efi_loader_path() {
+  if [[ $(uname -m) == aarch64 ]]; then
+    printf '%s\n' '\EFI\BOOT\BOOTAA64.EFI'
+  else
+    printf '%s\n' '\EFI\BOOT\BOOTX64.EFI'
+  fi
+}
+
 install_verify_service() {
   cat > "$VERIFY_SERVICE" <<'EOF'
 [Unit]
@@ -291,11 +297,10 @@ uninstall_verify_service() {
 }
 
 notify() {
-  # Send a desktop notification if possible (best effort).
+  # Send a desktop notification if possible (best effort). Use the repo's
+  # helper only; never call notify-send directly (AGENTS.md).
   if command -v omarchy-notification-send >/dev/null 2>&1; then
     omarchy-notification-send "$1" "$2" 2>/dev/null || true
-  elif command -v notify-send >/dev/null 2>&1; then
-    notify-send "$1" "$2" 2>/dev/null || true
   fi
 }
 
@@ -305,13 +310,13 @@ verify_migration() {
   [[ -f $STATE_FILE ]] || { echo "No migration state; nothing to verify."; return 0; }
   local status dest src current_disk
   status=$(state_get '.status')
-  [[ "$status" == "pending" ]] || { echo "Migration already verified (status=$status)."; return 0; }
+  [[ $status == "pending" ]] || { echo "Migration already verified (status=$status)."; return 0; }
 
   dest=$(state_get '.dest_disk')
   src=$(state_get '.source_disk')
   current_disk=$(disk_for_source "$(findmnt -no SOURCE /)") || current_disk=""
 
-  if [[ "$current_disk" == "$dest" ]]; then
+  if [[ $current_disk == $dest ]]; then
     state_write "status" "success"
     notify "Migration successful" "Omarchy is running from $dest. Open 'Migrate drive' to finalize."
     echo "Migration verified: booted from $dest (success)."
@@ -340,13 +345,13 @@ main() {
   }
 
   # --verify mode: non-interactive, used by the systemd service on first boot.
-  if [[ "${1:-}" == "--verify" ]]; then
+  if [[ ${1:-} == "--verify" ]]; then
     verify_migration
     exit 0
   fi
 
   # --status mode: show migration state and current boot disk (no elevation needed).
-  if [[ "${1:-}" == "--status" ]]; then
+  if [[ ${1:-} == "--status" ]]; then
     echo "=== Migration status ==="
     if state_exists; then
       echo "State file: $STATE_FILE"
@@ -369,13 +374,12 @@ main() {
 
   # --set-boot mode: create EFI entry for the migration destination and set boot order.
   # Requires root. Uses the destination from the state file, or accepts a disk arg.
-  if [[ "${1:-}" == "--set-boot" ]]; then
+  if [[ ${1:-} == "--set-boot" ]]; then
     if (( EUID != 0 )); then
       echo "Error: --set-boot requires root." >&2
       exit 1
     fi
-    export OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
-    export PATH="$OMARCHY_PATH/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
+    export PATH="${OMARCHY_PATH:-/usr/share/omarchy}/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
 
     local dest_disk dest_partuuid esp_partnum new_bootnum
     if [[ -n "${2:-}" ]]; then
@@ -464,7 +468,7 @@ main() {
       # If we are actually booted from the destination, treat as success
       # regardless of what the state file says (the verify service may have
       # run on the old drive before the user switched).
-      if [[ -n $prev_dest && "$current_disk" == "$prev_dest" ]]; then
+      if [[ -n $prev_dest && "$current_disk" == $prev_dest ]]; then
         prev_status="success"
       fi
       case "$prev_status" in
@@ -519,7 +523,7 @@ main() {
     fi
 
     # If state was cleared or finalized, elevate to root to execute, then exit.
-    if [[ "${OMARCHY_CLEAR_STATE:-}" == "1" || "${OMARCHY_FINALIZE:-}" == "1" ]]; then
+    if [[ ${OMARCHY_CLEAR_STATE:-} == "1" || "${OMARCHY_FINALIZE:-}" == "1" ]]; then
       self=$(/usr/bin/readlink -e -- "${BASH_SOURCE[0]}") || exit 1
       mapfile -t gum_env < <(env | grep '^GUM_' || true)
       exec sudo env "${gum_env[@]}" "OMARCHY_PATH=${OMARCHY_PATH:-/usr/share/omarchy}" "OMARCHY_CLEAR_STATE=${OMARCHY_CLEAR_STATE:-}" "OMARCHY_FINALIZE=${OMARCHY_FINALIZE:-}" "$self" "$@"
@@ -533,8 +537,7 @@ main() {
     exec sudo env "${gum_env[@]}" "OMARCHY_PATH=${OMARCHY_PATH:-/usr/share/omarchy}" "$self" "$@"
   fi
 
-  export OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
-  export PATH="$OMARCHY_PATH/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
+  export PATH="${OMARCHY_PATH:-/usr/share/omarchy}/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
 
   # --- EFI boot entry check (always when state exists, needs root) ---
   if state_exists; then
@@ -568,7 +571,7 @@ main() {
   fi
 
   # --- Finalize: remove old boot entries (only if requested) ---
-  if [[ "${OMARCHY_FINALIZE:-}" == "1" ]] && state_exists; then
+  if [[ ${OMARCHY_FINALIZE:-} == "1" ]] && state_exists; then
     src_pu=$(state_get '.source_partuuid')
     local old_nums=() old_count=0 deleted=0
     if [[ -n $src_pu ]]; then
@@ -592,13 +595,13 @@ main() {
     state_write "status" "finalized"
     echo "Finalization complete."
   fi
-  if [[ "${OMARCHY_CLEAR_STATE:-}" == "1" ]]; then
+  if [[ ${OMARCHY_CLEAR_STATE:-} == "1" ]]; then
     state_clear
     uninstall_verify_service
     echo "Migration state cleared."
   fi
   # If we were only clearing/finalizing (not starting a new migration), exit.
-  if [[ "${OMARCHY_CLEAR_STATE:-}" == "1" || "${OMARCHY_FINALIZE:-}" == "1" ]]; then
+  if [[ ${OMARCHY_CLEAR_STATE:-} == "1" || "${OMARCHY_FINALIZE:-}" == "1" ]]; then
     clear_below_logo
     exit 0
   fi
@@ -698,7 +701,7 @@ main() {
 
         found=0
         for drive in "${eligible[@]}"; do
-          [[ $selected == "$drive" ]] && found=1
+          [[ $selected == $drive ]] && found=1
         done
         if (( found == 0 )); then
           echo "Error: '$selected' is not an eligible destination drive." >&2
@@ -733,7 +736,7 @@ main() {
 
         source_destination=0
         for drive in "${source_disks[@]}"; do
-          if [[ "$(readlink -f -- "$drive")" == "$(readlink -f -- "$selected")" ]]; then
+          if [[ $(readlink -f -- "$drive") == $(readlink -f -- "$selected") ]]; then
             source_destination=1
             break
           fi
@@ -847,6 +850,6 @@ main() {
   done
 }
 
-if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+if [[ ${BASH_SOURCE[0]} == $0 ]]; then
   main "$@"
 fi

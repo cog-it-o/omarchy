@@ -298,9 +298,33 @@ uninstall_verify_service() {
 
 notify() {
   # Send a desktop notification if possible (best effort). Use the repo's
-  # helper only; never call notify-send directly (AGENTS.md).
+  # helper only; never call notify-send directly (AGENTS.md). Translate
+  # via omarchy-i18n when available, fall back to English otherwise.
+  local title=$1 body=$2
+  shift 2
+  local title_en body_en
+  case "$title" in
+    driveMigrate.success.title) title_en="Migration successful" ;;
+    driveMigrate.failed.title)  title_en="Migration failed" ;;
+    *) title_en="$title" ;;
+  esac
+  case "$body" in
+    driveMigrate.success.body) body_en="Omarchy is now running from $1. Open 'Migrate drive' to finalize." ;;
+    driveMigrate.failed.body)  body_en="Booted from $1 instead of $2. Open 'Migrate drive' to retry." ;;
+    *) body_en="$body" ;;
+  esac
+  if command -v omarchy-i18n >/dev/null 2>&1; then
+    title=$(omarchy-i18n "$title" "$@" 2>/dev/null || echo "$title_en")
+    body=$(omarchy-i18n "$body" "$@" 2>/dev/null || echo "$body_en")
+  else
+    title=$title_en
+    body=$body_en
+  fi
+  # If i18n returned the key unchanged (no translation), use English.
+  [[ $title == "driveMigrate."* ]] && title=$title_en
+  [[ $body == "driveMigrate."* ]] && body=$body_en
   if command -v omarchy-notification-send >/dev/null 2>&1; then
-    omarchy-notification-send "$1" "$2" 2>/dev/null || true
+    omarchy-notification-send "$title" "$body" 2>/dev/null || true
   fi
 }
 
@@ -318,11 +342,11 @@ verify_migration() {
 
   if [[ $current_disk == $dest ]]; then
     state_write "status" "success"
-    notify "Migration successful" "Omarchy is running from $dest. Open 'Migrate drive' to finalize."
+    notify "driveMigrate.success.title" "driveMigrate.success.body" "$dest"
     echo "Migration verified: booted from $dest (success)."
   else
     state_write "status" "failed"
-    notify "Migration failed" "Booted from $current_disk instead of $dest. Open 'Migrate drive' to retry."
+    notify "driveMigrate.failed.title" "driveMigrate.failed.body" "$current_disk" "$dest"
     echo "Migration failed: booted from $current_disk, expected $dest."
   fi
 

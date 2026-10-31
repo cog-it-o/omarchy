@@ -67,7 +67,7 @@ mapfile -t source_disks < <(current_installation_disks)
   fail "the installation disk is collected once even with a separate /boot" "${source_disks[*]-}"
 
 used=$(required_bytes /dev/sda)
-[[ $used == 76235669504 ]] ||
+[[ $used == 77309411328 ]] ||
   fail "used bytes come from the filesystems, with a 1 GiB floor for the ESP" "$used"
 
 reserve=$(migration_reserve "$used")
@@ -89,6 +89,12 @@ classify_destination_disks "$required" "${source_disks[@]}"
   fail "a zero-byte drive is never offered"
 [[ " ${eligible[*]-} " != *" /dev/zram0 "* && " ${too_small[*]-} " != *" /dev/zram0 "* ]] ||
   fail "non-physical disks such as zram are left out entirely"
+
+# The production entrypoint inlines the same detection helpers; make sure a
+# regression there is caught too.
+source "$ROOT/bin/omarchy-drive-migrate"
+[[ $(current_installation_disks) == "/dev/sda" ]] ||
+  fail "the production entrypoint detects the installation disk" "$(current_installation_disks)"
 
 pass "drive migration selects a destination from the data actually in use"
 

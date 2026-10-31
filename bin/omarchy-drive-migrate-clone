@@ -211,6 +211,7 @@ create_partitions() {
     sleep 1
     waited=$((waited + 1))
   done
+  DST_PARTUUID=$(blkid -s PARTUUID -o value "$DST_ROOT" 2>/dev/null || echo "")
   log_msg "Partitions created: $DST_ESP (ESP), $DST_ROOT (root)"
 }
 
@@ -250,9 +251,11 @@ prepare_destination_root() {
     printf '%s' "$LUKS_PASSPHRASE" | cryptsetup luksFormat --batch-mode --type luks2 --key-file - "$DST_ROOT" 2>&1 | tee -a "$LOG_FILE"
     printf '%s' "$LUKS_PASSPHRASE" | cryptsetup open --key-file - "$DST_ROOT" "$MAPPER" 2>&1 | tee -a "$LOG_FILE"
     NEW_ROOT_DEV="/dev/mapper/$MAPPER"
+    NEW_LUKS_UUID=$(blkid -s UUID -o value "$DST_ROOT" 2>/dev/null || echo "")
     log_msg "New LUKS container opened as $NEW_ROOT_DEV"
   else
     NEW_ROOT_DEV=$DST_ROOT
+    NEW_LUKS_UUID=""
   fi
 
   log_msg "Creating $ROOT_FSTYPE on $NEW_ROOT_DEV"
@@ -592,6 +595,8 @@ main() {
   mkdir -p "$WORK/root" "$WORK/esp" "$WORK/system"
   DST_ESP=$(partition_device "$destination" 1)
   DST_ROOT=$(partition_device "$destination" 2)
+  DST_PARTUUID=""
+  NEW_LUKS_UUID=""
 
   wipe_destination "$destination"
   create_partitions "$destination"
@@ -605,6 +610,51 @@ main() {
   update_configuration
   rebuild_boot
   verify_migration
+
+  # Write migration state and install the verification service on the
+  # DESTINATION (before unmounting), so the new drive can self-verify on
+  # first boot.
+  log_msg "Writing migration state and verification service to destination"
+  src_esp_pu=$(blkid -s PARTUUID -o value "$SRC_ESP" 2>/dev/null || echo "")
+  dest_state_dir="$WORK/root/${ROOT_SUBVOL:+$ROOT_SUBVOL/}var/lib/omarchy"
+  mkdir -p "$dest_state_dir"
+  jq -n \
+    --arg ts "$(date -Is)" \
+    --arg src "$SRC_ROOT_PART" \
+    --arg src_esp "$src_esp_pu" \
+    --arg dst "$destination" \
+    --arg pu "$DST_PARTUUID" \
+    --arg luks "$NEW_LUKS_UUID" \
+    --arg lf "$LOG_FILE" \
+    '{version:1, timestamp:$ts, source_disk:$src, source_esp_partuuid:$src_esp,
+      dest_disk:$dst, dest_partuuid:$pu, dest_luks_uuid:$luks, log_file:$lf,
+      status:"pending", boot_option_set:"no", old_bootnum:"", new_bootnum:"",
+      usb_bootnums:[], source_partuuid:$src_esp}' \
+    > "$dest_state_dir/drive-migration.state"
+  chmod 644 "$dest_state_dir/drive-migration.state" 2>/dev/null || true
+
+  dest_svc_dir="$WORK/root/${ROOT_SUBVOL:+$ROOT_SUBVOL/}etc/systemd/system"
+  dest_wants_dir="$dest_svc_dir/multi-user.target.wants"
+  mkdir -p "$dest_svc_dir" "$dest_wants_dir"
+  cat > "$dest_svc_dir/omarchy-drive-migrate-verify.service" <<'SVCEOF'
+[Unit]
+Description=Verify Omarchy drive migration on first boot
+ConditionPathExists=/var/lib/omarchy/drive-migration.state
+After=graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/share/omarchy/bin/omarchy-drive-migrate --verify
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target
+SVCEOF
+  ln -sf /etc/systemd/system/omarchy-drive-migrate-verify.service \
+    "$dest_wants_dir/omarchy-drive-migrate-verify.service" 2>/dev/null || true
+  log_msg "State and verification service written to destination"
 
   trap - ERR
   log_msg "=== Migration completed successfully ==="

@@ -67,6 +67,11 @@ required_bytes() {
     esac
     [[ $line =~ FSUSED=\"([^\"]*)\" ]] && fsused=${BASH_REMATCH[1]} || fsused=
     if [[ $fstype == vfat ]]; then
+      # Count the full ESP partition size, not just used bytes, because the
+      # clone recreates the ESP at the source partition's size.
+      if [[ $line =~ SIZE=\"([^\"]*)\" ]]; then
+        fsused=${BASH_REMATCH[1]}
+      fi
       [[ $fsused =~ ^[0-9]+$ ]] || fsused=0
       if (( fsused < gib )); then
         fsused=$gib
@@ -338,9 +343,17 @@ verify_migration() {
 
   dest=$(state_get '.dest_disk')
   src=$(state_get '.source_disk')
+  dest_pu=$(state_get '.dest_partuuid')
   current_disk=$(disk_for_source "$(findmnt -no SOURCE /)") || current_disk=""
+  # Compare by PARTUUID, not /dev name (names can change across reboots).
+  current_pu=""
+  if [[ -n $current_disk ]]; then
+    current_root_part=$(lsblk -nsrpo NAME,TYPE,FSTYPE "$(findmnt -no SOURCE / | sed 's/\\[.*//')" 2>/dev/null | awk '$2=="part" && $3=="crypto_LUKS"{print $1;exit}')
+    [[ -n $current_root_part ]] || current_root_part=$(lsblk -nsrpo NAME,TYPE "$(findmnt -no SOURCE / | sed 's/\\[.*//')" 2>/dev/null | awk '$2=="part"{print $1;exit}')
+    current_pu=$(blkid -s PARTUUID -o value "$current_root_part" 2>/dev/null || echo "")
+  fi
 
-  if [[ $current_disk == $dest ]]; then
+  if [[ -n $dest_pu && "$current_pu" == "$dest_pu" ]]; then
     state_write "status" "success"
     notify "driveMigrate.success.title" "driveMigrate.success.body" "$dest"
     echo "Migration verified: booted from $dest (success)."
@@ -451,7 +464,7 @@ main() {
       local boot_label
       boot_label=$(gum input --value "Omarchy (migrated)" --header "EFI boot entry label (Enter to accept default)") || boot_label="Omarchy (migrated)"
       [[ -n $boot_label ]] || boot_label="Omarchy (migrated)"
-      new_bootnum=$(efi_create_entry "$dest_disk" "$esp_partnum" "$boot_label" '\EFI\BOOT\BOOTX64.EFI')
+      new_bootnum=$(efi_create_entry "$dest_disk" "$esp_partnum" "$boot_label" "$(efi_loader_path)")
       if [[ -n $new_bootnum ]]; then
         echo "  Created entry: Boot$new_bootnum"
       else
@@ -489,10 +502,15 @@ main() {
       prev_status=$(state_get '.status')
       prev_dest=$(state_get '.dest_disk')
       current_disk=$(disk_for_source "$(findmnt -no SOURCE /)" 2>/dev/null || echo "")
+      # Compare by PARTUUID, not /dev name (names can change across reboots).
+      prev_dest_pu=$(state_get '.dest_partuuid')
+      current_root_part=$(lsblk -nsrpo NAME,TYPE,FSTYPE "$(findmnt -no SOURCE / | sed 's/\[.*//')" 2>/dev/null | awk '$2=="part" && $3=="crypto_LUKS"{print $1;exit}')
+      [[ -n $current_root_part ]] || current_root_part=$(lsblk -nsrpo NAME,TYPE "$(findmnt -no SOURCE / | sed 's/\[.*//')" 2>/dev/null | awk '$2=="part"{print $1;exit}')
+      current_pu=$(blkid -s PARTUUID -o value "$current_root_part" 2>/dev/null || echo "")
       # If we are actually booted from the destination, treat as success
       # regardless of what the state file says (the verify service may have
       # run on the old drive before the user switched).
-      if [[ -n $prev_dest && "$current_disk" == $prev_dest ]]; then
+      if [[ -n $prev_dest_pu && "$current_pu" == $prev_dest_pu ]]; then
         prev_status="success"
       fi
       case "$prev_status" in
@@ -578,7 +596,7 @@ main() {
         esp_partnum=$(efi_partnum "${dest_disk}$( [[ $dest_disk == *[0-9] ]] && echo p )1")
         boot_label=$(gum input --value "Omarchy (migrated)" --header "EFI boot entry label (Enter to accept default)") || boot_label="Omarchy (migrated)"
         [[ -n $boot_label ]] || boot_label="Omarchy (migrated)"
-        new_bootnum=$(efi_create_entry "$dest_disk" "$esp_partnum" "$boot_label" '\EFI\BOOT\BOOTX64.EFI')
+        new_bootnum=$(efi_create_entry "$dest_disk" "$esp_partnum" "$boot_label" "$(efi_loader_path)")
         if [[ -n $new_bootnum ]]; then
           echo "Created EFI entry: Boot$new_bootnum"
           efi_set_order_first "$new_bootnum"
@@ -818,7 +836,7 @@ main() {
             echo "Set the new drive first in your firmware boot menu manually." >&2
           else
             # Verify the new ESP has the Limine fallback bootloader.
-            if ! mdir -i "${selected}$( [[ $selected == *[0-9] ]] && echo p )1" ::/EFI/BOOT/BOOTX64.EFI >/dev/null 2>&1; then
+            if ! mdir -i "${selected}$( [[ $selected == *[0-9] ]] && echo p )1" ::/EFI/BOOT/$(basename "$(efi_loader_path)") >/dev/null 2>&1; then
               echo "Warning: Limine fallback bootloader (BOOTX64.EFI) not found on the new ESP." >&2
               echo "The new drive may not be bootable. Re-run migration or install Limine manually." >&2
             fi
@@ -830,7 +848,7 @@ main() {
               local boot_label
               boot_label=$(gum input --value "Omarchy (migrated)" --header "EFI boot entry label (Enter to accept default)") || boot_label="Omarchy (migrated)"
               [[ -n $boot_label ]] || boot_label="Omarchy (migrated)"
-              new_bootnum=$(efi_create_entry "$selected" "$esp_partnum" "$boot_label" '\EFI\BOOT\BOOTX64.EFI')
+              new_bootnum=$(efi_create_entry "$selected" "$esp_partnum" "$boot_label" "$(efi_loader_path)")
             fi
             if [[ -n $new_bootnum ]]; then
               efi_set_order_first "$new_bootnum"

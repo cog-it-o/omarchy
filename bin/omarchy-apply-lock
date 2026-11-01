@@ -43,7 +43,7 @@ EOF
 # Install resume recovery alongside fingerprint PAM, so setup and upgrades
 # cannot leave one configured without the other.
 validity_backend=false
-if command -v omarchy-hw-fingerprint-validity >/dev/null 2>&1 && omarchy-hw-fingerprint-validity; then
+if omarchy-cmd-present omarchy-hw-fingerprint-validity && omarchy-hw-fingerprint-validity; then
   validity_backend=true
 elif [[ -f /etc/systemd/system/python3-validity.service || -f /etc/udev/rules.d/60-python-validity.rules ]]; then
   validity_backend=true

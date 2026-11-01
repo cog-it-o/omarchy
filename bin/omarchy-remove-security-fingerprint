@@ -58,7 +58,7 @@ remove_resume_hook() {
 
 
 validity_backend=false
-if command -v omarchy-hw-fingerprint-validity >/dev/null 2>&1 && omarchy-hw-fingerprint-validity; then
+if omarchy-cmd-present omarchy-hw-fingerprint-validity && omarchy-hw-fingerprint-validity; then
   validity_backend=true
 elif [[ -f /etc/systemd/system/python3-validity.service || -f /etc/udev/rules.d/60-python-validity.rules ]]; then
   validity_backend=true
@@ -120,19 +120,18 @@ if [[ $validity_backend == true ]]; then
   echo "Removing Validity packages..."
   omarchy-pkg-drop python-validity open-fprintd
   echo -e "\e[32mFingerprint authentication and $fingerprint_user's local saved fingerprints have been removed.\e[0m"
-  exit 0
-fi
-
+else
 sudo rm -rf -- "/var/lib/fprint/$fingerprint_user"
 
-# A platform that turned its reader on for setup turns it off again. Failing to
-# doesn't stop the removal, but the owner is told the reader may stay on.
-if ! disable_hook=$(omarchy-lifecycle-dispatch --resolve disable-fingerprint) ||
-  { [[ -n $disable_hook ]] && ! sudo omarchy-lifecycle-dispatch disable-fingerprint; }; then
-  echo -e "\e[33mThe fingerprint reader may still be turned on at the next boot.\e[0m"
+  # A platform that turned its reader on for setup turns it off again. Failing to
+  # doesn't stop the removal, but the owner is told the reader may stay on.
+  if ! disable_hook=$(omarchy-lifecycle-dispatch --resolve disable-fingerprint) ||
+    { [[ -n $disable_hook ]] && ! sudo omarchy-lifecycle-dispatch disable-fingerprint; }; then
+    echo -e "\e[33mThe fingerprint reader may still be turned on at the next boot.\e[0m"
+  fi
+
+  echo "Removing fingerprint packages..."
+  omarchy-pkg-drop fprintd libfprint libfprint-git
+
+  echo -e "\e[32mFingerprint authentication and $fingerprint_user's local saved fingerprints have been removed.\e[0m"
 fi
-
-echo "Removing fingerprint packages..."
-omarchy-pkg-drop fprintd libfprint libfprint-git
-
-echo -e "\e[32mFingerprint authentication and $fingerprint_user's local saved fingerprints have been removed.\e[0m"

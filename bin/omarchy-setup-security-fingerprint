@@ -7,7 +7,7 @@ set -e
 
 
 is_validity_fingerprint() {
-  command -v omarchy-hw-fingerprint-validity >/dev/null 2>&1 &&
+  omarchy-cmd-present omarchy-hw-fingerprint-validity &&
     omarchy-hw-fingerprint-validity
 }
 

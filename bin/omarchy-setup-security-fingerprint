@@ -293,37 +293,6 @@ if (( enroll_status == 0 )); then
     exit 1
   fi
 else
-  echo -e "\e[31m\nFirst enrollment attempt failed.\e[0m"
-  if is_validity_fingerprint; then
-    echo "Attempting one sensor repair before retrying enrollment..."
-    if command -v omarchy-fingerprint-repair >/dev/null 2>&1; then
-      omarchy-fingerprint-repair || true
-    elif [[ -x "$OMARCHY_PATH/bin/omarchy-fingerprint-repair" ]]; then
-      "$OMARCHY_PATH/bin/omarchy-fingerprint-repair" || true
-    fi
-    if sudo fprintd-enroll -f right-index-finger "$USER"; then
-      enrolled_ok=true
-    fi
-  fi
-fi
-
-if [[ $enrolled_ok != true ]]; then
   echo -e "\e[31m\nEnrollment failed. Please try again.\e[0m"
   exit 1
 fi
-
-echo -e "\e[32m\nFingerprint enrolled successfully!\e[0m"
-
-echo -e "\nNow let's verify that it's working correctly.\n"
-if ! fprintd-verify -f right-index-finger; then
-  echo -e "\e[31m\nVerification failed. You may want to try enrolling again.\e[0m"
-  exit 1
-fi
-
-# PAM comes last: detection proves a reader is there, but enrollment + verify
-# confirms that the chosen backend can actually drive it.
-setup_pam_config
-"$OMARCHY_PATH/bin/omarchy-apply-lock"
-
-echo -e "\e[32m\nPerfect! Fingerprint authentication is now configured.\e[0m"
-echo "You can use your fingerprint for sudo, polkit, and lock screen (Super + Ctrl + L)."

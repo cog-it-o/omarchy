@@ -10,6 +10,13 @@ Validity readers (`138a:0097` and close relatives) are instead handled by
 
 Supported USB IDs: `138a:0090`, `138a:0097`, `138a:009d`, and `06cb:009a`.
 
+## Wake from suspend
+
+Validity setup no longer restarts `python3-validity`/`open-fprintd` on every
+wake. That restart took about 25 seconds in the background and made fingerprint
+login unreliable for several seconds after wake. If a sensor is genuinely wedged
+after suspend, run `omarchy-fingerprint-repair`.
+
 ## Validity recovery
 
 Validity sensors can lock after an unexpected access and need firmware to be

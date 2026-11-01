@@ -83,6 +83,9 @@ remove_validity_config() {
   fi
   sudo rm -f /usr/lib/systemd/system-sleep/python-validity-wakeup
   sudo rm -f /usr/lib/systemd/system-sleep/fprint_wakeup
+  sudo systemctl stop python3-validity-suspend-hotfix.service 2>/dev/null || true
+  sudo systemctl disable python3-validity-suspend-hotfix.service 2>/dev/null || true
+  sudo systemctl unmask python3-validity-suspend-hotfix.service 2>/dev/null || true
   sudo rm -rf /var/lib/python-validity
   sudo systemctl daemon-reload 2>/dev/null || true
   sudo systemctl unmask fprintd 2>/dev/null || true

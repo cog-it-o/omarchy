@@ -272,7 +272,7 @@ is_uefi() { [[ -d /sys/firmware/efi ]]; }
 
 # EFI fallback bootloader filename for the current platform.
 efi_loader_path() {
-  if command -v omarchy-hw-aarch64 >/dev/null 2>&1 && omarchy-hw-aarch64; then
+  if omarchy-hw-aarch64; then
     printf '%s\n' '\EFI\BOOT\BOOTAA64.EFI'
   else
     printf '%s\n' '\EFI\BOOT\BOOTX64.EFI'
@@ -323,19 +323,12 @@ notify() {
     driveMigrate.failed.body)  body_en="Booted from $1 instead of $2. Open 'Migrate drive' to retry." ;;
     *) body_en="$body" ;;
   esac
-  if command -v omarchy-i18n >/dev/null 2>&1; then
-    title=$(omarchy-i18n "$title" "$@" 2>/dev/null || echo "$title_en")
-    body=$(omarchy-i18n "$body" "$@" 2>/dev/null || echo "$body_en")
-  else
-    title=$title_en
-    body=$body_en
-  fi
+  title=$(omarchy-i18n "$title" "$@" 2>/dev/null || echo "$title_en")
+  body=$(omarchy-i18n "$body" "$@" 2>/dev/null || echo "$body_en")
   # If i18n returned the key unchanged (no translation), use English.
   [[ $title == "driveMigrate."* ]] && title=$title_en
   [[ $body == "driveMigrate."* ]] && body=$body_en
-  if command -v omarchy-notification-send >/dev/null 2>&1; then
-    omarchy-notification-send "$title" "$body" 2>/dev/null || true
-  fi
+  omarchy-notification-send "$title" "$body" 2>/dev/null || true
 }
 
 # --- Verify mode (run by the systemd service on first boot) ---
